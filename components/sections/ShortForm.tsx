@@ -94,7 +94,7 @@ export default function ShortForm() {
       };
       const onClick = () => {
         const face = outer.querySelector(".sf-card-face");
-        window.__openVideoPopup?.(outer.dataset.yt || "", face, outer.dataset.ar);
+        window.__openVideoPopup?.(outer.dataset.src || outer.dataset.yt || "", face, outer.dataset.ar);
       };
       outer.addEventListener("mouseenter", onEnter);
       outer.addEventListener("click", onClick);
@@ -112,7 +112,8 @@ export default function ShortForm() {
     const mobileCards = Array.from(root!.querySelectorAll<HTMLElement>(".sf-m-card"));
     mobileCards.forEach((card) => {
       const onClick = () => {
-        if (card.dataset.yt) window.__openVideoPopup?.(card.dataset.yt, card, card.dataset.ar);
+        const src = card.dataset.src || card.dataset.yt;
+        if (src) window.__openVideoPopup?.(src, card, card.dataset.ar);
       };
       card.addEventListener("click", onClick);
       cleanups.push(() => card.removeEventListener("click", onClick));

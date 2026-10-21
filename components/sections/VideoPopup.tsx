@@ -59,6 +59,10 @@ export default function VideoPopup() {
     const backdrop = document.getElementById("lfBackdrop")!;
     const modal = document.getElementById("lfModal") as HTMLElement;
     const frameEl = document.getElementById("lfFrame") as HTMLIFrameElement;
+    // Cards can also point at a video file (data-src) instead of a YouTube id; those play here.
+    const videoEl = document.getElementById("lfVideo") as HTMLVideoElement | null;
+    const isFile = (s: string) => /\.(mp4|webm|mov)(\?|#|$)/i.test(s);
+    let fileMode = false;
     const coverEl = document.getElementById("lfCover") as HTMLElement | null;
     const shieldEl = document.getElementById("lfShield") as HTMLElement | null;
     const veilEl = document.getElementById("lfVeil") as HTMLElement | null;
@@ -162,6 +166,22 @@ export default function VideoPopup() {
       if (playing) coverEl?.classList.add("is-hidden");
     };
     window.addEventListener("message", onPlayerMessage);
+
+    // A file plays in a plain <video>: its own events drive the veil and the poster cover.
+    const onFilePlaying = () => {
+      if (!isOpen || !fileMode) return;
+      isPlaying = true;
+      veilEl?.classList.remove("is-on");
+      coverEl?.classList.add("is-hidden");
+    };
+    const onFilePaused = () => {
+      if (!isOpen || !fileMode) return;
+      isPlaying = false;
+      veilEl?.classList.add("is-on");
+    };
+    videoEl?.addEventListener("playing", onFilePlaying);
+    videoEl?.addEventListener("pause", onFilePaused);
+    videoEl?.addEventListener("ended", onFilePaused);
     function stopCaptionRetries() {
       if (ccTimer !== null) {
         clearInterval(ccTimer);
@@ -238,8 +258,16 @@ export default function VideoPopup() {
       modal.style.height = rect.height + "px";
       overlay.classList.add("open");
 
-      frameEl.src = YT_HOST + encodeURIComponent(ytId) + "?" + YT_PARAMS;
-      stopCaptions();
+      fileMode = isFile(ytId) && !!videoEl;
+      modal.classList.toggle("is-file", fileMode);
+      if (fileMode) {
+        videoEl!.src = ytId;
+        videoEl!.currentTime = 0;
+        videoEl!.play().catch(() => onFilePaused());
+      } else {
+        frameEl.src = YT_HOST + encodeURIComponent(ytId) + "?" + YT_PARAMS;
+        stopCaptions();
+      }
 
       applyRect(targetRect(), true);
 
@@ -253,7 +281,8 @@ export default function VideoPopup() {
       isOpen = false;
       // Silence immediately rather than waiting out the 450ms close tween — the src is not cleared
       // until finishClose, so without this the audio keeps playing over the closing animation.
-      ytCommand("pauseVideo");
+      if (fileMode) videoEl?.pause();
+      else ytCommand("pauseVideo");
       stopCaptionRetries();
       // The player is paused on the way out, so drop the veil with it rather than leaving it lit
       // behind the closing modal (and ready to flash on the next open).
@@ -279,6 +308,12 @@ export default function VideoPopup() {
       // Clearing src destroys the player. Without this the video keeps playing (with audio)
       // behind the closed overlay.
       frameEl.removeAttribute("src");
+      if (fileMode && videoEl) {
+        videoEl.removeAttribute("src");
+        videoEl.load(); // drops the download too, not just the picture
+      }
+      fileMode = false;
+      modal.classList.remove("is-file");
       if (activeTile) activeTile.classList.remove("is-active");
       activeTile = null;
       document.documentElement.classList.remove("lf-lock");
@@ -327,7 +362,7 @@ export default function VideoPopup() {
       const onClick = (e: Event) => {
         e.preventDefault();
         const el = tile as HTMLElement;
-        openSource(el.dataset.yt || "", tile, el.dataset.ar);
+        openSource(el.dataset.src || el.dataset.yt || "", tile, el.dataset.ar);
       };
       tile.addEventListener("click", onClick);
       perTileCleanups.push(() => {
@@ -352,6 +387,13 @@ export default function VideoPopup() {
     // hands play/pause back to the viewer through it, so nothing is lost by hiding that chrome.
     const onShield = () => {
       if (!isOpen) return;
+      if (fileMode && videoEl) {
+        // The video's own play/pause events update the veil.
+        if (videoEl.paused) videoEl.play().catch(() => {});
+        else videoEl.pause();
+        coverEl?.classList.add("is-hidden");
+        return;
+      }
       isPlaying = !isPlaying;
       ytCommand(isPlaying ? "playVideo" : "pauseVideo");
       // Cover the player whenever it is paused — that is precisely when YouTube paints its
@@ -383,6 +425,9 @@ export default function VideoPopup() {
       if (coverTimer !== null) clearTimeout(coverTimer);
       stopCaptionRetries();
       window.removeEventListener("message", onPlayerMessage);
+      videoEl?.removeEventListener("playing", onFilePlaying);
+      videoEl?.removeEventListener("pause", onFilePaused);
+      videoEl?.removeEventListener("ended", onFilePaused);
       removeEventListener("resize", onResize);
       if (window.__openVideoPopup === openSource) window.__openVideoPopup = undefined;
     };
